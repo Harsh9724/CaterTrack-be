@@ -8,3 +8,4 @@ pymongo[srv]
 python-dotenv
 python-jose[cryptography]
 passlib[bcrypt]
+pydantic[email]
