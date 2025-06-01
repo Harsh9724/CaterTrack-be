@@ -34,6 +34,7 @@ app.mount(
 # Allow calls from your frontend (http://localhost:3000)
 origins = [
     "http://localhost:3000",
+    "https://www.catertrack.in",
     # If you ever deploy to another domain, add it here, e.g.:
     # "https://my-production-domain.com",
 ]
