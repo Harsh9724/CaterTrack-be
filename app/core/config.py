@@ -1,4 +1,5 @@
-from pydantic_settings import BaseSettings
+# app/core/config.py
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     cockroach_database_url: str
@@ -13,5 +14,11 @@ class Settings(BaseSettings):
 
     frontend_url: str
 
-    class Config:
-        env_file = ".env"   # or similar
+    # Tell Pydantic to also read a “.env” file if it exists
+    model_config = SettingsConfigDict(
+        env_file = ".env",
+        env_file_encoding = "utf-8"
+    )
+
+# At the bottom of this file, you must actually instantiate it:
+settings = Settings()
