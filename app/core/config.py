@@ -5,6 +5,8 @@ class Settings(BaseSettings):
     cockroach_database_url: str
     mongo_uri: str
     secret_key: str
+    algorithm: str
+    access_token_expire_minutes: int
 
     email_host: str
     email_port: int
