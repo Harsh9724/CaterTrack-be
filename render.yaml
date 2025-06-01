@@ -3,16 +3,8 @@ services:
   - type: web
     name: catertrack-backend
     env: python
-    plan: free   # or “starter”, “standard-0”, etc.
-    # The build command installs your requirements:
+    plan: free
     buildCommand: pip install -r requirements.txt
-    # The start command runs Uvicorn on the $PORT that Render provides:
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
-    # You can (optionally) pin a region. For example “oregon”:
-    # region: oregon
-    # Mounts, env-vars, and other advanced settings can also go here.
-
-# If you also have a managed database, you could add something like:
-# databases:
-#   - name: catertrack-db
-#     plan: free
+    # Because FastAPI is in src/main.py and defines "app = FastAPI()"
+    startCommand: uvicorn src.main:app --host 0.0.0.0 --port $PORT
+  
