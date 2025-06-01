@@ -6,5 +6,4 @@ services:
     plan: free
     buildCommand: pip install -r requirements.txt
     # Because FastAPI is in src/main.py and defines "app = FastAPI()"
-    startCommand: uvicorn src.main:app --host 0.0.0.0 --port $PORT
-  
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
