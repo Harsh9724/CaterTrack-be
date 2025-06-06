@@ -35,6 +35,7 @@ app.mount(
 origins = [
     "http://localhost:3000",
     "https://www.catertrack.in",
+    "https://catertrack.in",
     # If you ever deploy to another domain, add it here, e.g.:
     # "https://my-production-domain.com",
 ]

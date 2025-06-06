@@ -1,5 +1,3 @@
-# app/modules/package/api/package.py
-
 from typing import List, Optional
 from fastapi import (
     APIRouter,
@@ -29,8 +27,9 @@ def check_tenant(cid: str, current_user=Depends(get_current_active_user)):
     if current_user.caterer_id != cid:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
-# ─── 3.1  Menu Category Endpoints ──────────────────────────────────────────
-#
+
+# ─── 3.1  Menu Category Endpoints (unchanged) ──────────────────────────────────────────
+
 @router.post(
     "/menu/category",
     response_model=schemas.MenuCategoryOut,
@@ -107,9 +106,8 @@ def list_menu_categories(
     return response
 
 
-#
-# ─── 3.2  Menu Item Endpoints ───────────────────────────────────────────────
-#
+# ─── 3.2  Menu Item Endpoints (unchanged) ───────────────────────────────────────────────
+
 @router.post(
     "/menu/item",
     response_model=schemas.MenuItemOut,
@@ -221,9 +219,8 @@ def list_menu_items(
     return response
 
 
-#
 # ─── 3.3  Package Endpoints ─────────────────────────────────────────────────
-#
+
 @router.post(
     "/packages",
     response_model=schemas.PackageOut,
@@ -246,23 +243,30 @@ def create_package(
 
     now = datetime.utcnow()
     doc = {
-        "caterer_id": cid,
-        "name": dto.name,
-        "price": dto.price,
-        "description": dto.description,
-        "menu": dto.menu,  # optional list of {category_id, item_id, quantity}
-        "created_at": now,
-        "updated_at": None,
+        "caterer_id":       cid,
+        "name":             dto.name,
+        "price":            dto.price,
+        "description":      dto.description,
+        # Save menu as array of { name, description }
+        "menu":             dto.menu,
+        "decoration_type":  dto.decoration_type,
+        "waiter_count":     dto.waiter_count,
+        "pro_couple_count": dto.pro_couple_count,
+        "created_at":       now,
+        "updated_at":       None,
     }
     result = col_pkg.insert_one(doc)
     return {
-        "id": str(result.inserted_id),
-        "name": doc["name"],
-        "price": doc["price"],
-        "description": doc.get("description"),
-        "menu": doc.get("menu"),
-        "created_at": doc["created_at"],
-        "updated_at": None,
+        "id":               str(result.inserted_id),
+        "name":             doc["name"],
+        "price":            doc["price"],
+        "description":      doc.get("description"),
+        "menu":             doc.get("menu"),
+        "decoration_type":  doc.get("decoration_type"),
+        "waiter_count":     doc.get("waiter_count"),
+        "pro_couple_count": doc.get("pro_couple_count"),
+        "created_at":       doc["created_at"],
+        "updated_at":       None,
     }
 
 
@@ -297,21 +301,62 @@ def list_packages(
     for doc in results:
         response.append(
             {
-                "id": str(doc["_id"]),
-                "name": doc["name"],
-                "price": doc["price"],
-                "description": doc.get("description"),
-                "menu": doc.get("menu"),
-                "created_at": doc["created_at"],
-                "updated_at": doc.get("updated_at"),
+                "id":               str(doc["_id"]),
+                "name":             doc["name"],
+                "price":            doc["price"],
+                "description":      doc.get("description"),
+                "menu":             doc.get("menu"),
+                "decoration_type":  doc.get("decoration_type"),
+                "waiter_count":     doc.get("waiter_count"),
+                "pro_couple_count": doc.get("pro_couple_count"),
+                "created_at":       doc["created_at"],
+                "updated_at":       doc.get("updated_at"),
             }
         )
     return response
 
 
-#
-# ─── 3.4  Full Nested Menu Endpoint ──────────────────────────────────────────
-#
+@router.get(
+    "/packages/{package_id}",
+    response_model=schemas.PackageOut,
+)
+def get_package(
+    cid: str,
+    package_id: str,
+    mongo_db=Depends(get_mongo_db),
+    _=Depends(check_tenant),
+):
+    """
+    Retrieve a single package by ID for this caterer.
+    """
+    col_pkg: Collection = mongo_db["packages"]
+    # Validate package_id format
+    try:
+        pkg_obj = ObjectId(package_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid package_id format")
+
+    # Fetch the package document belonging to this caterer
+    pkg_doc = col_pkg.find_one({"_id": pkg_obj, "caterer_id": cid})
+    if not pkg_doc:
+        raise HTTPException(status_code=404, detail="Package not found")
+
+    return {
+        "id":               str(pkg_doc["_id"]),
+        "name":             pkg_doc["name"],
+        "price":            pkg_doc["price"],
+        "description":      pkg_doc.get("description"),
+        "menu":             pkg_doc.get("menu"),
+        "decoration_type":  pkg_doc.get("decoration_type"),
+        "waiter_count":     pkg_doc.get("waiter_count"),
+        "pro_couple_count": pkg_doc.get("pro_couple_count"),
+        "created_at":       pkg_doc["created_at"],
+        "updated_at":       pkg_doc.get("updated_at"),
+    }
+
+
+# ─── 3.4  Full Nested Menu Endpoint (unchanged) ──────────────────────────────────────────
+
 @router.get(
     "/menu",
     response_model=List[schemas.FullMenuCategoryOut],
@@ -368,23 +413,23 @@ def list_full_menu(
         for itm in items:
             item_list.append(
                 {
-                    "id": str(itm["_id"]),
+                    "id":          str(itm["_id"]),
                     "category_id": itm["category_id"],
-                    "name": itm["name"],
+                    "name":        itm["name"],
                     "description": itm.get("description"),
-                    "created_at": itm["created_at"],
-                    "updated_at": itm.get("updated_at"),
+                    "created_at":  itm["created_at"],
+                    "updated_at":  itm.get("updated_at"),
                 }
             )
 
         # Append the category + nested items
         response.append(
             {
-                "id": cat_id_str,
-                "name": cat_doc["name"],
+                "id":         cat_id_str,
+                "name":       cat_doc["name"],
                 "created_at": cat_doc["created_at"],
                 "updated_at": cat_doc.get("updated_at"),
-                "items": item_list,
+                "items":      item_list,
             }
         )
 
