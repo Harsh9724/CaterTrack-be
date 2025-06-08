@@ -69,10 +69,24 @@ class OrderOut(BaseModel):
     customer:    CustomerOut
     events:      List[EventOut]
     grand_total: Decimal
-    advance:     Decimal
+    paid_till_now:     Decimal
     due:         Decimal
     paid_status: str
     created_at:  datetime
     updated_at:  Optional[datetime]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ─── Payment Schemas ─────────────────────────────────────────
+
+class PaymentIn(BaseModel):
+    amount: Decimal
+    datetime: datetime
+    type: str
+    notes: Optional[str] = None
+
+class PaymentOut(PaymentIn):
+    payment_id: str
 
     model_config = ConfigDict(from_attributes=True)

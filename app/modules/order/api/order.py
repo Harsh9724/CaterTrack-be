@@ -1,5 +1,5 @@
 # app/modules/order/api/order.py
-
+from decimal import Decimal
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
@@ -11,6 +11,9 @@ from app.dependencies.database import get_sql_db, get_mongo_db
 from app.modules.auth.api.deps import get_current_active_user
 from app.modules.order import models, schemas
 from app.modules.customer.models import Customer
+
+from app.modules.order.schemas import PaymentIn, PaymentOut
+from app.modules.order.models import Payment,Order
 
 router = APIRouter(
     prefix="/caterer/{cid}",
@@ -98,7 +101,7 @@ def list_orders(
                 customer=customer_out,
                 events=event_out_list,
                 grand_total=order.grand_total,
-                advance=order.advance,
+                paid_till_now=order.paid_till_now,
                 due=order.due,
                 paid_status=order.paid_status,
                 created_at=order.created_at,
@@ -171,7 +174,7 @@ def get_order(
         customer=customer_out,
         events=event_out_list,
         grand_total=order.grand_total,
-        advance=order.advance,
+        paid_till_now=order.paid_till_now,
         due=order.due,
         paid_status=order.paid_status,
         created_at=order.created_at,
@@ -247,7 +250,7 @@ def create_order(
 
     # 4) Update the Order's totals
     order.grand_total = total_sum
-    order.due = total_sum - order.advance  # advance defaults to 0
+    order.due = total_sum - order.paid_till_now  # paid_till_now defaults to 0
     order.paid_status = "UNPAID" if order.due > 0 else "PAID"
 
     db.commit()
@@ -285,7 +288,7 @@ def create_order(
         customer=customer_out,
         events=event_out_list,
         grand_total=order.grand_total,
-        advance=order.advance,
+        paid_till_now=order.paid_till_now,
         due=order.due,
         paid_status=order.paid_status,
         created_at=order.created_at,
@@ -363,7 +366,7 @@ def create_order_with_customer(
 
     # 4) Update order totals
     order.grand_total = total_sum
-    order.due = total_sum - order.advance
+    order.due = total_sum - order.paid_till_now
     order.paid_status = "UNPAID" if order.due > 0 else "PAID"
 
     db.commit()
@@ -402,7 +405,7 @@ def create_order_with_customer(
         customer=customer_out,
         events=event_out_list,
         grand_total=order.grand_total,
-        advance=order.advance,
+        paid_till_now=order.paid_till_now,
         due=order.due,
         paid_status=order.paid_status,
         created_at=order.created_at,
@@ -523,4 +526,168 @@ def delete_event(
         raise HTTPException(status_code=500, detail="Failed to delete event")
 
     # 4) Return 204 No Content
+    return None
+
+
+
+
+
+@router.get(
+    "/orders/{order_id}/payments",
+    response_model=List[PaymentOut],
+)
+def list_payments(
+    cid: str,
+    order_id: str,
+    db: Session = Depends(get_sql_db),
+    _=Depends(check_tenant),
+):
+    # ensure order exists
+    from app.modules.order.models import Order
+    if not db.query(Order).filter_by(caterer_id=cid, order_id=order_id).first():
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    payments = (
+        db.query(Payment)
+        .filter_by(order_id=order_id)
+        .order_by(Payment.datetime)
+        .all()
+    )
+    return payments
+
+@router.post(
+    "/orders/{order_id}/payments",
+    response_model=PaymentOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_payment(
+    cid: str,
+    order_id: str,
+    dto: PaymentIn,
+    db: Session = Depends(get_sql_db),
+    _=Depends(check_tenant),
+):
+    # ensure order exists
+    from app.modules.order.models import Order
+    order = db.query(Order).filter_by(caterer_id=cid, order_id=order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    # Create & persist
+    payment = Payment(
+        order_id=order_id,
+        amount=dto.amount,
+        datetime=dto.datetime,
+        type=dto.type,
+        notes=dto.notes,
+    )
+    db.add(payment)
+
+    # Update order totals
+    order.paid_till_now += dto.amount
+    order.due -= dto.amount
+    if order.due <= 0:
+        order.paid_status = "PAID"
+    elif order.paid_till_now  > 0:
+        order.paid_status = "PARTIAL"
+
+    db.commit()
+    db.refresh(payment)
+    return payment
+
+
+@router.put(
+    "/orders/{order_id}/payments/{payment_id}",
+    response_model=PaymentOut,
+)
+def update_payment(
+    cid: str,
+    order_id: str,
+    payment_id: str,
+    dto: PaymentIn,
+    db: Session = Depends(get_sql_db),
+    _=Depends(check_tenant),
+):
+    # 1) Load order
+    order = db.query(Order).filter_by(caterer_id=cid, order_id=order_id).first()
+    if not order:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+
+    # 2) Load payment
+    payment = (
+        db.query(Payment)
+        .filter_by(payment_id=payment_id, order_id=order_id)
+        .first()
+    )
+    if not payment:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payment not found")
+
+    # 3) Compute deltas using Decimal
+    old_amount: Decimal = payment.amount
+    new_amount = Decimal(str(dto.amount))
+
+    # 4) Apply updates
+    payment.amount = new_amount
+    payment.datetime = dto.datetime
+    payment.type = dto.type
+    payment.notes = dto.notes
+
+    # 5) Recompute order totals
+    order.paid_till_now = order.paid_till_now - old_amount + new_amount
+    order.due = order.due + old_amount - new_amount
+
+    # 6) Update payment status
+    if order.due <= 0:
+        order.paid_status = "PAID"
+    elif order.paid_till_now > 0:
+        order.paid_status = "PARTIAL"
+    else:
+        order.paid_status = "UNPAID"
+
+    db.commit()
+    db.refresh(payment)
+    return payment
+
+
+@router.delete(
+    "/orders/{order_id}/payments/{payment_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_payment(
+    cid: str,
+    order_id: str,
+    payment_id: str,
+    db: Session = Depends(get_sql_db),
+    _=Depends(check_tenant),
+):
+    # 1) Load order
+    order = db.query(Order).filter_by(caterer_id=cid, order_id=order_id).first()
+    if not order:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+
+    # 2) Load payment
+    payment = (
+        db.query(Payment)
+        .filter_by(payment_id=payment_id, order_id=order_id)
+        .first()
+    )
+    if not payment:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payment not found")
+
+    # 3) Capture amount and delete
+    amt: Decimal = payment.amount
+    db.delete(payment)
+
+    # 4) Adjust order totals
+    order.paid_till_now = order.paid_till_now - amt
+    order.due = order.due + amt
+
+    if order.due <= 0:
+        order.paid_status = "PAID"
+    elif order.paid_till_now > 0:
+        order.paid_status = "PARTIAL"
+    else:
+        order.paid_status = "UNPAID"
+
+    db.commit()
     return None
